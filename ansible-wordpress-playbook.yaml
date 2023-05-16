@@ -1,0 +1,100 @@
+---
+- name: Install WordPress with Nginx
+  hosts: your_ec2_instance
+  become: true
+  vars:
+    mysql_root_password: your_mysql_root_password
+    wordpress_db_name: your_wordpress_db_name
+    wordpress_db_user: your_wordpress_db_user
+    wordpress_db_password: your_wordpress_db_password
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install required packages
+      apt:
+        name:
+          - nginx
+          - mysql-server
+          - php-fpm
+          - php-mysql
+          - php-curl
+          - php-gd
+          - php-mbstring
+          - php-xml
+          - unzip
+        state: present
+
+    - name: Configure Nginx
+      template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/sites-available/default
+      notify:
+        - restart nginx
+
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
+
+    - name: Configure MySQL root password
+      debconf:
+        name: 'mysql-server'
+        question: 'mysql-server/root_password'
+        value: '{{ mysql_root_password }}'
+        vtype: 'password'
+
+    - name: Install WordPress database
+      mysql_db:
+        name: '{{ wordpress_db_name }}'
+        state: present
+        login_user: root
+        login_password: '{{ mysql_root_password }}'
+
+    - name: Create MySQL user for WordPress
+      mysql_user:
+        name: '{{ wordpress_db_user }}'
+        password: '{{ wordpress_db_password }}'
+        priv: '{{ wordpress_db_name }}.*:ALL'
+        state: present
+        login_user: root
+        login_password: '{{ mysql_root_password }}'
+
+    - name: Download WordPress
+      get_url:
+        url: 'https://wordpress.org/latest.zip'
+        dest: /tmp/wordpress.zip
+
+    - name: Extract WordPress
+      unarchive:
+        src: /tmp/wordpress.zip
+        dest: /var/www/html/
+        owner: www-data
+        group: www-data
+        mode: '755'
+
+    - name: Configure WordPress
+      template:
+        src: wp-config.php.j2
+        dest: /var/www/html/wordpress/wp-config.php
+        owner: www-data
+        group: www-data
+      notify:
+        - restart php-fpm
+
+    - name: Restart PHP-FPM
+      service:
+        name: php7.4-fpm
+        state: restarted
+
+  handlers:
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted
+
+    - name: restart php-fpm
+      service:
+        name: php7.4-fpm
+        state: restarted
